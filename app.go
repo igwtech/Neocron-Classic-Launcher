@@ -506,7 +506,7 @@ func (a *App) patchCallbacks() patch.Callbacks {
 }
 
 func (a *App) isInstalled() bool {
-	_, err := os.Stat(a.cfg.GameExePath())
+	_, err := os.Stat(a.cfg.ResolveGameExe())
 	return err == nil
 }
 

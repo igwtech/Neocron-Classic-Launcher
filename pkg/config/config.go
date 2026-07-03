@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // Channel is a game release track exposed in the launcher footer dropdown.
@@ -157,5 +158,27 @@ func (c *Config) ClientDir() string {
 	return filepath.Join(c.InstallDir, "clients", c.Channel)
 }
 
-// GameExePath returns the absolute path to the game binary for the active channel.
+// GameExePath returns the configured absolute path to the game binary for the
+// active channel (may not match on-disk casing — see ResolveGameExe).
 func (c *Config) GameExePath() string { return filepath.Join(c.ClientDir(), c.GameExe) }
+
+// ResolveGameExe returns the actual path to the game binary, tolerating a
+// case-mismatch between GameExe and the on-disk name. The manifest ships
+// "Neocron.exe" but older configs saved "neocron.exe", and Linux filesystems
+// are case-sensitive — so fall back to a case-insensitive scan of the client dir.
+func (c *Config) ResolveGameExe() string {
+	exact := c.GameExePath()
+	if _, err := os.Stat(exact); err == nil {
+		return exact
+	}
+	entries, err := os.ReadDir(c.ClientDir())
+	if err != nil {
+		return exact
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.EqualFold(e.Name(), c.GameExe) {
+			return filepath.Join(c.ClientDir(), e.Name())
+		}
+	}
+	return exact
+}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -27,6 +28,34 @@ func TestClientDirAndGameExePath(t *testing.T) {
 	c.Channel = "ncc-retail"
 	if got := c.ClientDir(); got != filepath.FromSlash("/games/nc/clients/ncc-retail") {
 		t.Errorf("ClientDir after channel switch = %q", got)
+	}
+}
+
+// A stale config saying "neocron.exe" must still find the on-disk "Neocron.exe"
+// (the manifest's casing) on a case-sensitive filesystem.
+func TestResolveGameExeCaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+	c := DefaultConfig()
+	c.InstallDir = dir
+	c.Channel = "ncc-pts"
+	c.GameExe = "neocron.exe" // stale lowercase
+
+	clientDir := filepath.Join(dir, "clients", "ncc-pts")
+	if err := os.MkdirAll(clientDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realExe := filepath.Join(clientDir, "Neocron.exe") // actual on-disk casing
+	if err := os.WriteFile(realExe, []byte("mz"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := c.ResolveGameExe(); got != realExe {
+		t.Errorf("ResolveGameExe = %q, want %q", got, realExe)
+	}
+	// Exact-match path still wins when it exists.
+	c.GameExe = "Neocron.exe"
+	if got := c.ResolveGameExe(); got != realExe {
+		t.Errorf("ResolveGameExe (exact) = %q, want %q", got, realExe)
 	}
 }
 

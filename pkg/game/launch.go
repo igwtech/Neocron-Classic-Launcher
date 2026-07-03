@@ -80,7 +80,7 @@ func (l *Launcher) Launch(cfg *config.Config, o LaunchOpts, onOutput func(string
 	if o.Ticket == "" {
 		return fmt.Errorf("no launch ticket")
 	}
-	exePath := cfg.GameExePath()
+	exePath := cfg.ResolveGameExe()
 	if _, err := os.Stat(exePath); err != nil {
 		return fmt.Errorf("game not installed at %s", exePath)
 	}
