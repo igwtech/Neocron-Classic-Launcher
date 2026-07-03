@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "nc1-launcher",
+  "outputfilename": "nc1-launcher",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Javier Munoz",
+    "email": "javier@greicodex.com"
+  },
+  "info": {
+    "productName": "Neocron Launcher",
+    "comments": "Cross-platform Neocron Classic (NC1) launcher"
+  }
+}
