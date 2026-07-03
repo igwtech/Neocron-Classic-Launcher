@@ -35,6 +35,20 @@ func TestParseAccountsToleratesFieldNames(t *testing.T) {
 	}
 }
 
+// GET /me/accounts wraps the list in an {"accounts":[...]} envelope (verified
+// against the live auth service). It must parse the same as the bare array the
+// exchange reply embeds — otherwise linked accounts are forgotten on restart.
+func TestParseAccountsWrappedEnvelope(t *testing.T) {
+	raw := json.RawMessage(`{"accounts":[{"user_id":315,"name":"msn2wolf","banned":false,"expired":false}]}`)
+	got := parseAccounts(raw)
+	if len(got) != 1 {
+		t.Fatalf("got %d accounts, want 1", len(got))
+	}
+	if got[0].ID != 315 || got[0].Name != "msn2wolf" || got[0].Disabled {
+		t.Errorf("acct = %+v", got[0])
+	}
+}
+
 func TestParseDiscordFallbacks(t *testing.T) {
 	d := parseDiscord(json.RawMessage(`{"id":"9","global_name":"Ada","avatar":"a.png"}`))
 	if d.ID != "9" || d.Name != "Ada" || d.Avatar != "a.png" {

@@ -367,9 +367,23 @@ func parseAccounts(raw json.RawMessage) []Account {
 	if len(raw) == 0 {
 		return nil
 	}
+	// The list arrives in two shapes: the /auth/discord/exchange reply embeds a
+	// bare array ([...]) via its struct field, while GET /me/accounts wraps it in
+	// an {"accounts":[...]} envelope. Accept both so the account list survives a
+	// restart (otherwise a wrapped reply fails to parse and the session persists
+	// with a null account list — the "linked accounts forgotten" bug).
 	var arr []map[string]any
 	if json.Unmarshal(raw, &arr) != nil {
-		return nil
+		var env struct {
+			Accounts []map[string]any `json:"accounts"`
+			Data     []map[string]any `json:"data"`
+		}
+		if json.Unmarshal(raw, &env) != nil {
+			return nil
+		}
+		if arr = env.Accounts; arr == nil {
+			arr = env.Data
+		}
 	}
 	out := make([]Account, 0, len(arr))
 	for _, m := range arr {
