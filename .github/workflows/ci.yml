@@ -33,4 +33,6 @@ jobs:
         run: go test ./pkg/...
 
       - name: Build (linux desktop)
-        run: go build -tags "desktop,production" -o /tmp/nc1-launcher .
+        # webkit2_41 selects WebKit2GTK 4.1 (what ubuntu-latest ships); without it
+        # Wails' cgo pkg-config looks for the older webkit2gtk-4.0.
+        run: go build -tags "desktop,production,webkit2_41" -o /tmp/nc1-launcher .
