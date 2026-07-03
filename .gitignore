@@ -1,6 +1,8 @@
 /build/bin/
 /re/ghidra_proj/
 /re/artifacts/launcher.zip
+/re/
+/docs/
 *.exe
 *.dll
 *.pak
