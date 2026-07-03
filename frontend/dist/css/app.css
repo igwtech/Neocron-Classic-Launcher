@@ -559,3 +559,151 @@ a, .btn-link {
     -o-transition: none;
     transition: none;
 }
+
+/* --- Addons manager ------------------------------------------------------- */
+.modal-box-wide {
+    min-width: 560px;
+    max-width: 680px;
+    width: 90vw;
+}
+.addon-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 6px 0 12px;
+    border-bottom: 1px solid rgba(255, 153, 0, 0.25);
+}
+.addon-tab {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 0.9em;
+    border-bottom: 2px solid transparent;
+}
+.addon-tab:hover { color: rgba(255, 255, 255, 0.9); }
+.addon-tab-active {
+    color: rgba(255, 153, 0, 0.95);
+    border-bottom-color: rgba(255, 153, 0, 0.9);
+}
+.addon-list {
+    max-height: 46vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.addon-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+}
+.addon-card-main { flex: 1; min-width: 0; }
+.addon-card-title {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.92);
+}
+.addon-card-meta {
+    font-size: 0.78em;
+    color: rgba(255, 255, 255, 0.5);
+    margin-left: 6px;
+}
+.addon-card-desc {
+    font-size: 0.82em;
+    color: rgba(255, 255, 255, 0.7);
+    margin-top: 3px;
+    line-height: 1.35;
+}
+.addon-card-warn {
+    font-size: 0.78em;
+    color: rgba(255, 180, 60, 0.95);
+    margin-top: 4px;
+}
+.addon-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.addon-btn {
+    background: rgba(255, 153, 0, 0.14);
+    border: 1px solid rgba(255, 153, 0, 0.5);
+    color: rgba(255, 153, 0, 0.95);
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.82em;
+    cursor: pointer;
+}
+.addon-btn:hover { background: rgba(255, 153, 0, 0.24); }
+.addon-btn[disabled] {
+    opacity: 0.4;
+    cursor: default;
+    border-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.4);
+    background: transparent;
+}
+.addon-btn-danger {
+    border-color: rgba(255, 80, 80, 0.5);
+    color: rgba(255, 120, 120, 0.95);
+    background: transparent;
+}
+.addon-btn-danger:hover { background: rgba(255, 80, 80, 0.18); }
+.addon-iconbtn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.7);
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1;
+    font-size: 0.9em;
+}
+.addon-iconbtn:hover { border-color: rgba(255, 153, 0, 0.6); color: #fff; }
+.addon-iconbtn[disabled] { opacity: 0.3; cursor: default; }
+/* Toggle switch */
+.addon-toggle { position: relative; width: 38px; height: 20px; flex-shrink: 0; }
+.addon-toggle input { opacity: 0; width: 0; height: 0; }
+.addon-toggle-slider {
+    position: absolute; inset: 0;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 20px;
+    transition: background 0.15s;
+}
+.addon-toggle-slider::before {
+    content: ""; position: absolute;
+    height: 14px; width: 14px; left: 3px; top: 3px;
+    background: #ddd; border-radius: 50%;
+    transition: transform 0.15s;
+}
+.addon-toggle input:checked + .addon-toggle-slider { background: rgba(255, 153, 0, 0.75); }
+.addon-toggle input:checked + .addon-toggle-slider::before { transform: translateX(18px); }
+.addon-url-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 12px;
+}
+.addon-url-input {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    color: #eee;
+    padding: 5px 8px;
+    font-size: 0.82em;
+}
+.addon-status {
+    margin-top: 10px;
+    min-height: 16px;
+    font-size: 0.8em;
+    color: rgba(255, 255, 255, 0.65);
+}
+.addon-empty {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.85em;
+    text-align: center;
+    padding: 24px 0;
+}

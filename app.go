@@ -11,6 +11,7 @@ import (
 
 	wr "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"nc1launcher/pkg/addon"
 	"nc1launcher/pkg/api"
 	"nc1launcher/pkg/auth"
 	"nc1launcher/pkg/config"
@@ -29,11 +30,12 @@ var Version = "0.1.0"
 type App struct {
 	ctx context.Context
 
-	cfg   *config.Config
-	auth  *auth.Client
-	store *auth.Store
-	api   *api.Client
-	game  *game.Launcher
+	cfg    *config.Config
+	auth   *auth.Client
+	store  *auth.Store
+	api    *api.Client
+	game   *game.Launcher
+	addons *addon.Manager
 
 	mu      sync.Mutex
 	session *auth.Session
@@ -47,12 +49,14 @@ func NewApp() *App {
 	if err != nil {
 		cfg = config.DefaultConfig()
 	}
+	addon.LauncherVersion = Version
 	a := &App{
-		cfg:   cfg,
-		auth:  auth.New(cfg.AuthBaseURL),
-		store: auth.NewStore(config.ConfigDir()),
-		api:   api.New(cfg.BannerURL, cfg.UserAgent),
-		game:  game.NewLauncher(),
+		cfg:    cfg,
+		auth:   auth.New(cfg.AuthBaseURL),
+		store:  auth.NewStore(config.ConfigDir()),
+		api:    api.New(cfg.BannerURL, cfg.UserAgent),
+		game:   game.NewLauncher(),
+		addons: addon.NewManager(cfg.ClientDir()), // overlays the active channel's client dir
 	}
 	if s, _ := a.store.Load(); s != nil {
 		a.session = s
@@ -109,6 +113,24 @@ func (a *App) Dispatch(request string) string {
 		go a.onCloseGameAndUpdate()
 	case "abortUpdate":
 		a.onAbortUpdate()
+	case "addonList":
+		go a.pushAddons()
+	case "addonCatalog":
+		go a.pushCatalog()
+	case "addonInstall":
+		go a.onAddonInstall(argString(req.Args, 0))
+	case "addonUninstall":
+		go a.onAddonUninstall(argString(req.Args, 0))
+	case "addonEnable":
+		go a.onAddonSetEnabled(argString(req.Args, 0), true)
+	case "addonDisable":
+		go a.onAddonSetEnabled(argString(req.Args, 0), false)
+	case "addonUpdate":
+		go a.onAddonUpdate(argString(req.Args, 0))
+	case "addonCheckUpdates":
+		go a.onAddonCheckUpdates()
+	case "addonReorder":
+		go a.onAddonReorder(argStrings(req.Args, 0))
 	}
 	return ""
 }
@@ -283,6 +305,9 @@ func (a *App) onChannelChanged(ch string) {
 	}
 	a.mu.Lock()
 	a.cfg.Channel = ch
+	// Addons overlay the active channel's client dir — re-point the manager so
+	// installs/stamps land in the newly-selected channel.
+	a.addons.InstallDir = a.cfg.ClientDir()
 	a.mu.Unlock()
 	_ = a.cfg.Save()
 	a.emit("nclSetChannel", ch)
@@ -375,7 +400,20 @@ func (a *App) launchGame() {
 		return
 	}
 
-	err = a.game.Launch(a.cfg, game.LaunchOpts{AccountName: acctName, Ticket: ticket},
+	// Fold in any enabled addons' DLL overrides + env vars (e.g. a ReShade
+	// dxgi proxy, vkBasalt config path).
+	dllOverrides := a.addons.EnabledDLLOverrides()
+	envVars, everr := a.addons.EnabledEnvVars()
+	if everr != nil {
+		wr.LogWarning(a.ctx, "[addons] env vars: "+everr.Error())
+	}
+
+	err = a.game.Launch(a.cfg, game.LaunchOpts{
+		AccountName:  acctName,
+		Ticket:       ticket,
+		DLLOverrides: dllOverrides,
+		EnvVars:      envVars,
+	},
 		func(line string) { wr.LogInfo(a.ctx, "[game] "+line) },
 		func(st game.Status) {
 			a.pushPlayState()
@@ -410,13 +448,27 @@ func (a *App) applyUpdate() bool {
 	defer a.endBusy()
 	a.pushPlayState()
 	a.emit("nclToggleStepBar", true)
+
+	// Peel enabled addons back to pristine before the patcher runs, so the CDN
+	// manifest verifies against clean game files (addon-stamped files would
+	// otherwise be flagged as wounds and reverted). Re-stamp afterward.
+	if err := a.addons.PrepareForUpdate(); err != nil {
+		wr.LogWarning(a.ctx, "[addons] prepare-for-update: "+err.Error())
+	}
+
 	err := a.patcher().Apply(context.Background(), a.patchCallbacks())
 	a.emit("nclToggleProgressBar", false)
 	a.emit("nclToggleStepBar", false)
 	if err != nil {
+		if rerr := a.addons.ReapplyEnabled(); rerr != nil {
+			wr.LogWarning(a.ctx, "[addons] reapply after failed update: "+rerr.Error())
+		}
 		a.emit("nclShowError", "Update failed: "+err.Error())
 		a.pushPlayState()
 		return false
+	}
+	if err := a.addons.FinishAfterUpdate(); err != nil {
+		wr.LogWarning(a.ctx, "[addons] finish-after-update: "+err.Error())
 	}
 	a.pushPlayState()
 	return true
@@ -552,6 +604,138 @@ func accountName(s *auth.Session, id int) string {
 	return ""
 }
 
+// --- addons -----------------------------------------------------------------
+
+// pushAddons sends the installed-addon list (+ any missing "expects" paths) to
+// the UI's nclSetAddons.
+func (a *App) pushAddons() {
+	list, err := a.addons.ListInstalled()
+	if err != nil {
+		a.emit("nclShowError", "Failed to read addons: "+err.Error())
+		return
+	}
+	missing := a.addons.MissingExpected()
+	items := make([]map[string]any, 0, len(list))
+	for _, ad := range list {
+		items = append(items, map[string]any{
+			"id":          ad.ID,
+			"name":        ad.Manifest.Name,
+			"version":     ad.Version,
+			"author":      ad.Manifest.Author,
+			"description": ad.Manifest.Description,
+			"category":    ad.Manifest.Category,
+			"enabled":     ad.Enabled,
+			"priority":    ad.Priority,
+			"requires":    ad.Manifest.Requires,
+			"missing":     missing[ad.ID],
+		})
+	}
+	a.emit("nclSetAddons", items)
+}
+
+// pushCatalog fetches the curated catalog and pushes it to nclSetCatalog,
+// marking entries already installed so the UI shows the right action.
+func (a *App) pushCatalog() {
+	entries, err := addon.FetchCatalog(context.Background(), a.cfg.AddonCatalogURL, a.cfg.UserAgent)
+	if err != nil {
+		a.emit("nclShowError", "Failed to load addon catalog: "+err.Error())
+		return
+	}
+	installed := map[string]bool{}
+	if list, _ := a.addons.ListInstalled(); list != nil {
+		for _, ad := range list {
+			installed[ad.ID] = true
+		}
+	}
+	items := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, map[string]any{
+			"id":          e.ID,
+			"name":        e.Name,
+			"description": e.Description,
+			"author":      e.Author,
+			"category":    e.Category,
+			"repoUrl":     e.RepoURL,
+			"version":     e.Version,
+			"icon":        e.Icon,
+			"requires":    e.Requires,
+			"installed":   installed[e.ID],
+		})
+	}
+	a.emit("nclSetCatalog", items)
+}
+
+func (a *App) addonProgress(p addon.DownloadProgress) {
+	a.emit("nclAddonProgress", map[string]any{
+		"status": p.Status, "percent": p.Percent, "message": p.Message,
+	})
+}
+
+func (a *App) onAddonInstall(repoURL string) {
+	if repoURL == "" {
+		return
+	}
+	if err := a.addons.InstallFromRepo(repoURL, a.addonProgress); err != nil {
+		a.emit("nclAddonError", err.Error())
+		return
+	}
+	a.emit("nclAddonComplete", "installed")
+	a.pushAddons()
+}
+
+func (a *App) onAddonUninstall(id string) {
+	if err := a.addons.Uninstall(id); err != nil {
+		a.emit("nclAddonError", err.Error())
+		return
+	}
+	a.emit("nclAddonComplete", "uninstalled")
+	a.pushAddons()
+}
+
+func (a *App) onAddonSetEnabled(id string, enabled bool) {
+	var err error
+	if enabled {
+		err = a.addons.Enable(id)
+	} else {
+		err = a.addons.Disable(id)
+	}
+	if err != nil {
+		a.emit("nclAddonError", err.Error())
+	}
+	a.pushAddons()
+}
+
+func (a *App) onAddonUpdate(id string) {
+	if err := a.addons.Update(id, a.addonProgress); err != nil {
+		a.emit("nclAddonError", err.Error())
+		return
+	}
+	a.emit("nclAddonComplete", "updated")
+	a.pushAddons()
+}
+
+func (a *App) onAddonCheckUpdates() {
+	ups, err := a.addons.CheckUpdates()
+	if err != nil {
+		a.emit("nclAddonError", err.Error())
+		return
+	}
+	items := make([]map[string]any, 0, len(ups))
+	for _, u := range ups {
+		items = append(items, map[string]any{
+			"addonId": u.AddonID, "current": u.CurrentVersion, "latest": u.LatestVersion,
+		})
+	}
+	a.emit("nclSetAddonUpdates", items)
+}
+
+func (a *App) onAddonReorder(ids []string) {
+	if err := a.addons.Reorder(ids); err != nil {
+		a.emit("nclAddonError", err.Error())
+	}
+	a.pushAddons()
+}
+
 func argString(args []json.RawMessage, i int) string {
 	if i >= len(args) {
 		return ""
@@ -561,4 +745,16 @@ func argString(args []json.RawMessage, i int) string {
 		return s
 	}
 	return ""
+}
+
+// argStrings decodes a JSON string-array argument (e.g. addon reorder ids).
+func argStrings(args []json.RawMessage, i int) []string {
+	if i >= len(args) {
+		return nil
+	}
+	var s []string
+	if json.Unmarshal(args[i], &s) == nil {
+		return s
+	}
+	return nil
 }

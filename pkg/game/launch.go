@@ -33,6 +33,14 @@ type Status struct {
 type LaunchOpts struct {
 	AccountName string // -ticketuser
 	Ticket      string // -ticket
+
+	// DLLOverrides are basenames of DLLs enabled addons inject (e.g. "dxgi",
+	// "d3d11" for a ReShade proxy). Under Wine/Proton each is set to
+	// native,builtin so the addon copy loads ahead of the builtin.
+	DLLOverrides []string
+	// EnvVars are extra process environment entries enabled addons request
+	// (e.g. ReShade/vkBasalt config paths). Applied after the runtime env.
+	EnvVars map[string]string
 }
 
 // Launcher owns the child game process.
@@ -86,7 +94,7 @@ func (l *Launcher) Launch(cfg *config.Config, o LaunchOpts, onOutput func(string
 	}
 	args := gameArgs(o)
 
-	cmd, env, err := buildCommand(cfg, exePath, args)
+	cmd, env, err := buildCommand(cfg, exePath, args, o)
 	if err != nil {
 		return err
 	}
@@ -143,10 +151,17 @@ func (l *Launcher) Kill() error {
 	return cmd.Process.Kill()
 }
 
-// buildCommand assembles the exec.Cmd + environment for the active runtime.
-func buildCommand(cfg *config.Config, exePath string, args []string) (*exec.Cmd, []string, error) {
+// buildCommand assembles the exec.Cmd + environment for the active runtime,
+// folding in any DLL overrides and env vars enabled addons requested (o).
+func buildCommand(cfg *config.Config, exePath string, args []string, o LaunchOpts) (*exec.Cmd, []string, error) {
 	if runtime.GOOS == "windows" || cfg.RuntimeMode == "native" {
-		return exec.Command(exePath, args...), append(os.Environ(), cfg.ExtraEnv...), nil
+		// Native: an addon's proxy DLL (e.g. dxgi.dll) loads automatically from
+		// the exe's directory; no override needed. Addon env vars still apply.
+		env := append(os.Environ(), cfg.ExtraEnv...)
+		for k, v := range o.EnvVars {
+			env = append(env, k+"="+v)
+		}
+		return exec.Command(exePath, args...), env, nil
 	}
 
 	switch cfg.RuntimeMode {
@@ -156,8 +171,10 @@ func buildCommand(cfg *config.Config, exePath string, args []string) (*exec.Cmd,
 		}
 		prefixMgr := proton.NewPrefixManager(cfg.PrefixPath)
 		env := prefixMgr.BuildGameEnv(cfg.ProtonPath, proton.LaunchEnvOpts{
-			EnableDXVK:     cfg.EnableDXVK,
-			EnableMangoHud: cfg.EnableMangoHud,
+			EnableDXVK:        cfg.EnableDXVK,
+			EnableMangoHud:    cfg.EnableMangoHud,
+			ExtraDLLOverrides: o.DLLOverrides,
+			ExtraEnv:          o.EnvVars,
 		})
 		env = append(env, cfg.ExtraEnv...)
 		if script := proton.GetProtonScript(cfg.ProtonPath); script != "" {
@@ -175,7 +192,11 @@ func buildCommand(cfg *config.Config, exePath string, args []string) (*exec.Cmd,
 			return nil, nil, fmt.Errorf("wine not found in PATH")
 		}
 		env := append(os.Environ(), "WINEDEBUG=-all,err+module")
+		env = append(env, proton.ComposeDLLOverrides(o.DLLOverrides))
 		env = append(env, cfg.ExtraEnv...)
+		for k, v := range o.EnvVars {
+			env = append(env, k+"="+v)
+		}
 		return exec.Command(wineBin, append([]string{exePath}, args...)...), env, nil
 	}
 }

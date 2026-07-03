@@ -100,6 +100,39 @@
         </div>
     </div>
 
+    <!-- Addons manager: install/toggle graphics & other addons that overlay the
+         active channel's client dir. -->
+    <div id="addons-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-box modal-box-wide">
+            <div class="modal-header">
+                <span class="modal-title">Addons</span>
+                <span class="modal-close" id="addons-close" title="Close">&times;</span>
+            </div>
+
+            <div class="addon-tabs">
+                <button type="button" class="addon-tab addon-tab-active" data-addon-tab="installed">Installed</button>
+                <button type="button" class="addon-tab" data-addon-tab="browse">Browse</button>
+            </div>
+
+            <!-- Installed pane -->
+            <div id="addon-pane-installed" class="addon-pane">
+                <div id="addon-installed-list" class="addon-list"></div>
+            </div>
+
+            <!-- Browse pane -->
+            <div id="addon-pane-browse" class="addon-pane" style="display: none;">
+                <div id="addon-catalog-list" class="addon-list"></div>
+                <div class="addon-url-row">
+                    <input type="text" id="addon-url-input" class="addon-url-input"
+                           placeholder="Advanced: paste a GitHub addon repo URL" />
+                    <button type="button" class="btn addon-btn" id="addon-url-install">Install</button>
+                </div>
+            </div>
+
+            <div id="addon-status" class="addon-status"></div>
+        </div>
+    </div>
+
     <script src="js/bootstrap.bundle.min.js"></script>
     <script src="js/jquery-3.6.1.min.js"></script>
     <!-- Wails<->CEF bridge: must load before neocron.js/launcher.js -->

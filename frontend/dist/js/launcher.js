@@ -27,6 +27,9 @@
             selectedId: "",
             offline: false,
         },
+        addons: [],                // installed: [{id,name,version,enabled,priority,requires,missing,...}]
+        catalog: [],               // browsable: [{id,name,repoUrl,installed,...}]
+        addonUpdates: {},          // id -> latest version
     };
 
     const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -70,6 +73,7 @@
                 </button>
                 <ul class="dropdown-menu">
                     <li><a class="dropdown-item" data-action="checkupdates">Check for Updates</a></li>
+                    <li><a class="dropdown-item" data-action="addons">Addons</a></li>
                     <li><a class="dropdown-item" data-action="gfx">GFX Options</a></li>
                     <li><a class="dropdown-item" data-action="filecheck">File Check</a></li>
                     <li><a class="dropdown-item" data-action="bypass">Bypass File Checks</a></li>
@@ -85,6 +89,7 @@
                 switch (el.getAttribute("data-action")) {
                     case "play": call("play"); break;
                     case "checkupdates": call("checkForUpdates"); break;
+                    case "addons": openAddons(); break;
                     case "gfx": call("gfxOptions"); break;
                     case "filecheck": call("fileCheck"); break;
                     case "bypass": call("bypassFileChecks"); break;
@@ -252,6 +257,34 @@
         applyOptionsToUi();
     };
 
+    // Addon bridge
+    window.nclSetAddons = function (items) {
+        state.addons = Array.isArray(items) ? items : [];
+        renderInstalledAddons();
+    };
+    window.nclSetCatalog = function (items) {
+        state.catalog = Array.isArray(items) ? items : [];
+        renderCatalog();
+    };
+    window.nclSetAddonUpdates = function (items) {
+        const map = {};
+        (Array.isArray(items) ? items : []).forEach((u) => { map[u.addonId] = u.latest; });
+        state.addonUpdates = map;
+        renderInstalledAddons();
+    };
+    window.nclAddonProgress = function (p) {
+        p = p || {};
+        const pct = typeof p.percent === "number" ? ` ${Math.round(p.percent)}%` : "";
+        setAddonStatus((p.message || p.status || "Working") + pct);
+    };
+    window.nclAddonComplete = function (kind) {
+        setAddonStatus("Done" + (kind ? " (" + kind + ")" : "") + ".");
+        call("addonCatalog"); // refresh installed-badges in the catalog
+    };
+    window.nclAddonError = function (msg) {
+        setAddonStatus(msg || "Addon operation failed.", true);
+    };
+
     // --- options dialog ------------------------------------------------------
 
     function applyOptionsToUi() {
@@ -303,6 +336,140 @@
         if (modal) modal.style.display = "none";
     }
 
+    // --- addons manager ------------------------------------------------------
+
+    function openAddons() {
+        const modal = $("addons-modal");
+        if (modal) modal.style.display = "flex";
+        setAddonStatus("");
+        call("addonList");
+        call("addonCatalog");
+        call("addonCheckUpdates");
+    }
+
+    function closeAddons() {
+        const modal = $("addons-modal");
+        if (modal) modal.style.display = "none";
+    }
+
+    function switchAddonTab(tab) {
+        document.querySelectorAll("[data-addon-tab]").forEach((el) => {
+            el.classList.toggle("addon-tab-active", el.getAttribute("data-addon-tab") === tab);
+        });
+        const inst = $("addon-pane-installed"), browse = $("addon-pane-browse");
+        if (inst) inst.style.display = tab === "installed" ? "" : "none";
+        if (browse) browse.style.display = tab === "browse" ? "" : "none";
+    }
+
+    function setAddonStatus(msg, isError) {
+        const el = $("addon-status");
+        if (!el) return;
+        el.textContent = msg || "";
+        el.style.color = isError ? "rgba(255,120,120,0.95)" : "rgba(255,255,255,0.65)";
+    }
+
+    function renderInstalledAddons() {
+        const list = $("addon-installed-list");
+        if (!list) return;
+        const items = state.addons;
+        if (!items.length) {
+            list.innerHTML = `<div class="addon-empty">No addons installed. Open the Browse tab to add one.</div>`;
+            return;
+        }
+        list.innerHTML = items.map((ad, i) => {
+            const latest = state.addonUpdates[ad.id];
+            const canUpdate = latest && latest !== ad.version;
+            const missing = Array.isArray(ad.missing) && ad.missing.length
+                ? `<div class="addon-card-warn">Missing required files: ${ad.missing.map(escapeHtml).join(", ")}</div>` : "";
+            return `
+            <div class="addon-card" data-id="${escapeHtml(ad.id)}">
+                <div class="addon-card-actions">
+                    <button class="addon-iconbtn" data-addon-up ${i === 0 ? "disabled" : ""} title="Higher priority">&#9650;</button>
+                    <button class="addon-iconbtn" data-addon-down ${i === items.length - 1 ? "disabled" : ""} title="Lower priority">&#9660;</button>
+                </div>
+                <div class="addon-card-main">
+                    <div>
+                        <span class="addon-card-title">${escapeHtml(ad.name || ad.id)}</span>
+                        <span class="addon-card-meta">v${escapeHtml(ad.version || "?")}${ad.author ? " · " + escapeHtml(ad.author) : ""}</span>
+                    </div>
+                    ${ad.description ? `<div class="addon-card-desc">${escapeHtml(ad.description)}</div>` : ""}
+                    ${missing}
+                </div>
+                <div class="addon-card-actions">
+                    ${canUpdate ? `<button class="addon-btn" data-addon-update title="Update to v${escapeHtml(latest)}">Update</button>` : ""}
+                    <label class="addon-toggle" title="${ad.enabled ? "Enabled" : "Disabled"}">
+                        <input type="checkbox" data-addon-toggle ${ad.enabled ? "checked" : ""} />
+                        <span class="addon-toggle-slider"></span>
+                    </label>
+                    <button class="addon-iconbtn addon-btn-danger" data-addon-remove title="Remove">&times;</button>
+                </div>
+            </div>`;
+        }).join("");
+
+        list.querySelectorAll(".addon-card").forEach((card) => {
+            const id = card.getAttribute("data-id");
+            const q = (sel) => card.querySelector(sel);
+            const t = q("[data-addon-toggle]");
+            if (t) t.addEventListener("change", () => {
+                call(t.checked ? "addonEnable" : "addonDisable", id);
+                setAddonStatus((t.checked ? "Enabling " : "Disabling ") + id + "…");
+            });
+            const up = q("[data-addon-up]");
+            if (up) up.addEventListener("click", () => reorderAddon(id, -1));
+            const down = q("[data-addon-down]");
+            if (down) down.addEventListener("click", () => reorderAddon(id, +1));
+            const upd = q("[data-addon-update]");
+            if (upd) upd.addEventListener("click", () => { call("addonUpdate", id); setAddonStatus("Updating " + id + "…"); });
+            const rm = q("[data-addon-remove]");
+            if (rm) rm.addEventListener("click", () => { call("addonUninstall", id); setAddonStatus("Removing " + id + "…"); });
+        });
+    }
+
+    function reorderAddon(id, delta) {
+        const ids = state.addons.map((a) => a.id);
+        const idx = ids.indexOf(id);
+        const j = idx + delta;
+        if (idx < 0 || j < 0 || j >= ids.length) return;
+        ids.splice(idx, 1);
+        ids.splice(j, 0, id);
+        call("addonReorder", ids);
+    }
+
+    function renderCatalog() {
+        const list = $("addon-catalog-list");
+        if (!list) return;
+        const items = state.catalog;
+        if (!items.length) {
+            list.innerHTML = `<div class="addon-empty">No addons in the catalog yet. You can still paste a GitHub repo URL below.</div>`;
+            return;
+        }
+        list.innerHTML = items.map((e) => `
+            <div class="addon-card" data-repo="${escapeHtml(e.repoUrl || "")}">
+                <div class="addon-card-main">
+                    <div>
+                        <span class="addon-card-title">${escapeHtml(e.name || e.id)}</span>
+                        ${e.version ? `<span class="addon-card-meta">v${escapeHtml(e.version)}${e.author ? " · " + escapeHtml(e.author) : ""}</span>` : ""}
+                    </div>
+                    ${e.description ? `<div class="addon-card-desc">${escapeHtml(e.description)}</div>` : ""}
+                </div>
+                <div class="addon-card-actions">
+                    <button class="addon-btn" data-catalog-install ${e.installed ? "disabled" : ""}>
+                        ${e.installed ? "Installed" : "Install"}
+                    </button>
+                </div>
+            </div>`).join("");
+
+        list.querySelectorAll(".addon-card").forEach((card) => {
+            const repo = card.getAttribute("data-repo");
+            const btn = card.querySelector("[data-catalog-install]");
+            if (btn && !btn.disabled) btn.addEventListener("click", () => {
+                if (!repo) return;
+                call("addonInstall", repo);
+                setAddonStatus("Installing…");
+            });
+        });
+    }
+
     // --- init ---------------------------------------------------------------
 
     document.addEventListener("DOMContentLoaded", function () {
@@ -343,6 +510,30 @@
                 call("setOption", "postLaunch", el.value);
             });
         });
+
+        // Addons modal wiring.
+        const addonsClose = $("addons-close");
+        if (addonsClose) addonsClose.addEventListener("click", closeAddons);
+        const addonsOverlay = $("addons-modal");
+        if (addonsOverlay) addonsOverlay.addEventListener("click", function (e) {
+            if (e.target === addonsOverlay) closeAddons();
+        });
+        document.querySelectorAll("[data-addon-tab]").forEach((el) => {
+            el.addEventListener("click", () => switchAddonTab(el.getAttribute("data-addon-tab")));
+        });
+        const urlInstall = $("addon-url-install");
+        const urlInput = $("addon-url-input");
+        if (urlInstall && urlInput) {
+            const doInstall = () => {
+                const url = urlInput.value.trim();
+                if (!url) return;
+                call("addonInstall", url);
+                setAddonStatus("Installing from " + url + "…");
+                urlInput.value = "";
+            };
+            urlInstall.addEventListener("click", doInstall);
+            urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doInstall(); });
+        }
 
         renderPlayGroup();
         renderAuthArea();

@@ -34,6 +34,11 @@ type Config struct {
 	ServerKey   string `json:"serverKey"`   // static content-API key (path segment; no auth)
 	BannerURL   string `json:"bannerUrl"`   // https://neocron.org/api/launcher
 
+	// AddonCatalogURL is the curated addon list shown for one-click installs;
+	// each entry points at a GitHub repo the addon installer consumes. Empty or
+	// unpublished (404) yields an empty catalog — users can still paste a URL.
+	AddonCatalogURL string `json:"addonCatalogUrl"`
+
 	// Channels
 	Channels  []Channel `json:"channels"`
 	Channel   string    `json:"channel"`   // selected channel id
@@ -86,6 +91,9 @@ func DefaultConfig() *Config {
 		APIBaseURL:  "https://areamc5.neocron.org",
 		ServerKey:   "a96f4803d335e41c23486a43ea22a2bf5226cb8a2501da2b25867bccf42be6e1",
 		BannerURL:   "https://neocron.org/api/launcher",
+		// Curated NC1 addon catalog (igwtech org). Unpublished today → empty list;
+		// the paste-a-GitHub-URL path works regardless.
+		AddonCatalogURL: "https://raw.githubusercontent.com/igwtech/neocron-classic-addons/main/catalog.json",
 		Channels: []Channel{
 			{ID: "ncc-pts", Name: "Neocron Public Test"},
 			{ID: "ncc-retail", Name: "Neocron Retail", Disabled: true},
