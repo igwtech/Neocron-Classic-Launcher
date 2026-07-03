@@ -43,3 +43,59 @@ func TestLiveInstallReShade(t *testing.T) {
 		t.Errorf("expected dxgi override, got %v", o)
 	}
 }
+
+// Tier 0: the Quality addon requires the base. Installing it alone must fail;
+// base-then-quality must stack (qUINT shaders + quality preset stamped, base
+// dxgi.dll preserved). Gated behind NC1_LIVE_INSTALL=1.
+func TestLiveInstallQualityChain(t *testing.T) {
+	if os.Getenv("NC1_LIVE_INSTALL") != "1" {
+		t.Skip("set NC1_LIVE_INSTALL=1 to run the live install")
+	}
+	install := t.TempDir()
+	m := NewManager(install)
+	m.DataDir = t.TempDir()
+
+	// Quality alone must be refused (requires the base).
+	if err := m.InstallFromRepo("https://github.com/igwtech/neocron-classic-reshade-quality", nil); err == nil {
+		t.Fatalf("installing quality without base should fail (requires chain)")
+	}
+
+	// Base, then quality.
+	if err := m.InstallFromRepo("https://github.com/igwtech/neocron-classic-reshade", nil); err != nil {
+		t.Fatalf("base install failed: %v", err)
+	}
+	if err := m.InstallFromRepo("https://github.com/igwtech/neocron-classic-reshade-quality",
+		func(p DownloadProgress) { t.Logf("[%s] %.0f%% %s", p.Status, p.Percent, p.Message) }); err != nil {
+		t.Fatalf("quality install failed: %v", err)
+	}
+
+	// qUINT AO/SSR shaders stamped, plus base's dxgi.dll still present.
+	for _, rel := range []string{
+		"dxgi.dll",
+		"NeocronClassic-Quality.ini",
+		filepath.Join("reshade-shaders", "Shaders", "qUINT_mxao.fx"),
+		filepath.Join("reshade-shaders", "Shaders", "qUINT_ssr.fx"),
+	} {
+		if _, err := os.Stat(filepath.Join(install, rel)); err != nil {
+			t.Errorf("missing stamped file %s: %v", rel, err)
+		}
+	}
+	// Quality (higher priority) owns ReShade.ini -> points at the quality preset.
+	ini, _ := os.ReadFile(filepath.Join(install, "ReShade.ini"))
+	if !contains(string(ini), "NeocronClassic-Quality.ini") {
+		t.Errorf("ReShade.ini should select the quality preset, got:\n%s", ini)
+	}
+	list, _ := m.ListInstalled()
+	if len(list) != 2 {
+		t.Errorf("expected 2 installed addons, got %d", len(list))
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

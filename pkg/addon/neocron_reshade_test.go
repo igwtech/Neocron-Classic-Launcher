@@ -58,9 +58,9 @@ const reshadeQualityAddonJSON = `{
       "from": "https://github.com/martymcmodding/qUINT/archive/refs/heads/master.tar.gz",
       "extract": "tar.gz",
       "files": [
-        { "src": "qUINT-master/Shaders/qUINT_mxao.fx",    "dst": "reshade-shaders/Shaders" },
-        { "src": "qUINT-master/Shaders/qUINT_ssr.fx",     "dst": "reshade-shaders/Shaders" },
-        { "src": "qUINT-master/Shaders/qUINT_common.fxh", "dst": "reshade-shaders/Shaders" }
+        { "src": "qUINT-master/Shaders/qUINT_mxao.fx",    "dst": "reshade-shaders/Shaders/qUINT_mxao.fx" },
+        { "src": "qUINT-master/Shaders/qUINT_ssr.fx",     "dst": "reshade-shaders/Shaders/qUINT_ssr.fx" },
+        { "src": "qUINT-master/Shaders/qUINT_common.fxh", "dst": "reshade-shaders/Shaders/qUINT_common.fxh" }
       ]
     }
   ],
