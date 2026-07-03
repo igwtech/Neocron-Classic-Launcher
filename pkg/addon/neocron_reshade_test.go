@@ -40,6 +40,47 @@ const reshadeAddonJSON = `{
   "requires": []
 }`
 
+// The Quality addon (igwtech/neocron-classic-reshade-quality) requires the base
+// ReShade addon and adds depth-based AO/SSR. Must validate the same way.
+const reshadeQualityAddonJSON = `{
+  "id": "neocron-classic-reshade-quality",
+  "name": "ReShade Quality — Ambient Occlusion + SSR (DX11)",
+  "version": "0.1.0",
+  "author": "igwtech / Neocron Community",
+  "description": "Depth-based AO (qUINT MXAO) + SSR on the base ReShade addon.",
+  "category": "graphics",
+  "files": [
+    { "src": "ReShade.ini",                "dst": "ReShade.ini" },
+    { "src": "NeocronClassic-Quality.ini", "dst": "NeocronClassic-Quality.ini" }
+  ],
+  "fetch": [
+    {
+      "from": "https://github.com/martymcmodding/qUINT/archive/refs/heads/master.tar.gz",
+      "extract": "tar.gz",
+      "files": [
+        { "src": "qUINT-master/Shaders/qUINT_mxao.fx",    "dst": "reshade-shaders/Shaders" },
+        { "src": "qUINT-master/Shaders/qUINT_ssr.fx",     "dst": "reshade-shaders/Shaders" },
+        { "src": "qUINT-master/Shaders/qUINT_common.fxh", "dst": "reshade-shaders/Shaders" }
+      ]
+    }
+  ],
+  "requires": ["neocron-classic-reshade"],
+  "conflicts": []
+}`
+
+func TestReShadeQualityManifestValidates(t *testing.T) {
+	var m AddonManifest
+	if err := json.Unmarshal([]byte(reshadeQualityAddonJSON), &m); err != nil {
+		t.Fatalf("quality addon.json does not parse: %v", err)
+	}
+	if err := validateManifest(m); err != nil {
+		t.Fatalf("quality addon.json fails installer validation: %v", err)
+	}
+	if len(m.Requires) != 1 || m.Requires[0] != "neocron-classic-reshade" {
+		t.Errorf("quality must require the base addon, got %v", m.Requires)
+	}
+}
+
 func TestReShadeAddonManifestValidates(t *testing.T) {
 	var m AddonManifest
 	if err := json.Unmarshal([]byte(reshadeAddonJSON), &m); err != nil {
