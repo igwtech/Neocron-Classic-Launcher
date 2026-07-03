@@ -11,8 +11,7 @@ Win32 game client under Proton/Wine).
 
 ## What the official launcher does (and this one reproduces)
 
-The official launcher is a two-stage, CEF-based app (see
-[`docs/RE_LAUNCHER.md`](docs/RE_LAUNCHER.md) for the full teardown):
+The official launcher is a two-stage, CEF-based app:
 
 - `LauncherMcLaunchy.exe` — a bootstrap/self-updater that pulls the real
   launcher bundle (`launcher.zip`, a Chromium Embedded Framework app) from the
