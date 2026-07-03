@@ -1,0 +1,154 @@
+name: Build and Release
+
+# GitOps: every push to main auto-tags and publishes a release with binaries for
+# Linux (amd64/arm64), Windows (amd64) and macOS (amd64/arm64). Pushing a manual
+# v* tag also triggers a release with that exact version.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Compute the release version once, shared by build + release jobs.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v0.1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+            artifact: nc1-launcher-linux-amd64
+            binary: nc1-launcher
+            deps: linux
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+            artifact: nc1-launcher-linux-arm64
+            binary: nc1-launcher
+            deps: linux
+          - os: ubuntu-latest
+            platform: windows/amd64
+            artifact: nc1-launcher-windows-amd64.exe
+            binary: nc1-launcher.exe
+            deps: windows
+          - os: macos-latest
+            platform: darwin/amd64
+            artifact: nc1-launcher-darwin-amd64
+            binary: nc1-launcher
+            deps: macos
+          - os: macos-latest
+            platform: darwin/arm64
+            artifact: nc1-launcher-darwin-arm64
+            binary: nc1-launcher
+            deps: macos
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      # --- Linux dependencies (WebKit2GTK) ---
+      - name: Install Linux build dependencies
+        if: matrix.deps == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      # --- Windows cross-compilation dependencies ---
+      - name: Install Windows cross-compiler
+        if: matrix.deps == 'windows'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Install macOS dependencies
+        if: matrix.deps == 'macos'
+        run: brew install --quiet pkg-config
+
+      # The frontend is a prebuilt static site under frontend/dist embedded via
+      # go:embed, so there is no npm step. -ldflags injects the version into
+      # main.Version (shown in the UI footer + startup line). -tags webkit2_41
+      # selects the newer WebKit on Linux.
+      - name: Build
+        run: >
+          wails build -platform ${{ matrix.platform }}
+          -o ${{ matrix.binary }} -nopackage -tags webkit2_41
+          -ldflags "-X 'main.Version=${{ needs.prepare.outputs.version }}'"
+        env:
+          CGO_ENABLED: 1
+
+      - name: Find and copy binary
+        run: |
+          find build/bin -type f | head -20
+          if [ -f "build/bin/${{ matrix.binary }}" ]; then
+            cp "build/bin/${{ matrix.binary }}" "${{ matrix.artifact }}"
+          elif [ -d "build/bin/${{ matrix.binary }}.app" ]; then
+            cp "build/bin/${{ matrix.binary }}.app/Contents/MacOS/${{ matrix.binary }}" "${{ matrix.artifact }}"
+          else
+            echo "ERROR: Binary not found"; find build/ -type f; exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 5
+
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    name: Create Release
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          files: |
+            artifacts/nc1-launcher-linux-amd64/nc1-launcher-linux-amd64
+            artifacts/nc1-launcher-linux-arm64/nc1-launcher-linux-arm64
+            artifacts/nc1-launcher-windows-amd64.exe/nc1-launcher-windows-amd64.exe
+            artifacts/nc1-launcher-darwin-amd64/nc1-launcher-darwin-amd64
+            artifacts/nc1-launcher-darwin-arm64/nc1-launcher-darwin-arm64
