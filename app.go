@@ -130,8 +130,25 @@ func (a *App) onUIReady() {
 	a.pushAuthState()
 	a.pushPlayState()
 	go a.refreshBanners()
+	go a.refreshNews()
 	go a.refreshAccountsAndState()
 	go a.checkForUpdates(false)
+}
+
+// refreshNews fetches the launcher news feed (areamc5/{channel}/{key}/news) and
+// pushes it to the UI's nclSetNews, exactly as the official launcher does.
+func (a *App) refreshNews() {
+	posts, err := api.FetchNews(context.Background(), a.cfg.APIBaseURL, 10, a.cfg.UserAgent)
+	if err != nil {
+		return // leave the news area empty on failure
+	}
+	items := make([]map[string]any, 0, len(posts))
+	for _, p := range posts {
+		items = append(items, map[string]any{
+			"id": p.ID, "title": p.Title, "body": p.Body, "createdAt": p.CreatedAt,
+		})
+	}
+	a.emit("nclSetNews", items)
 }
 
 func (a *App) pushOptions() {
